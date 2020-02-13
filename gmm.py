@@ -4,7 +4,6 @@
 GolayMetaMiner: a software for k-mer based identification of clade-specific 
                 targets
 
-Created on Tue Jan  7 21:43:46 2020
 @author: Tom C.C. HO 
 """
 import hashlib
@@ -18,13 +17,16 @@ import urllib.parse
 import urllib.request
 
 import matplotlib.pyplot as plt
+import numpy as np
 
+from parse_ncbi_table import get_accessions
 
 DEBUG = False
 VERSION = '1.0 beta build 20200107'
 CACHE_DIR = 'gmm-cache'
 RESULT_DIR = 'gmm-runs'
-KMER_SIZE = 16
+KMER_SIZE = 12
+PERCENTILE = 99.9
 
 def check_create_dir(directory):
     """Create a storage directory if not already present."""
@@ -61,7 +63,7 @@ def load_fasta(fasta_path):
     # clean up the title and sequence
     title = title.replace('>', '')
     sequence = sequence.replace('\n', '')
-    print(title, 'with', len(sequence), 'characters loaded.', file=sys.stderr)
+    print('\t', title, 'with', len(sequence), 'characters loaded.', file=sys.stderr)
     return title, sequence
 
 def load_genome(accession, save=True, start=0, end=0, complementary_strand=False):
@@ -70,7 +72,8 @@ def load_genome(accession, save=True, start=0, end=0, complementary_strand=False
         start, end = end, start
         if not complementary_strand:
             complementary_strand = True
-            print('# Coerced to complementary strand', file=sys.stderr)
+            if DEBUG:
+                print('# Coerced to complementary strand', file=sys.stderr)
     if start == 0 and end == 0 and complementary_strand == False:
         genome_file = hashlib.sha1(accession.encode('ascii')).hexdigest() + '.fasta'
     else:
@@ -88,7 +91,8 @@ def load_genome(accession, save=True, start=0, end=0, complementary_strand=False
             efetch_url += '&seq_start=' + str(start) + '&seq_stop=' + str(end)
             if complementary_strand:
                 efetch_url += '&strand=2'
-        print(efetch_url, file=sys.stderr)
+        if DEBUG:
+            print(efetch_url, file=sys.stderr)
         fasta_data = wget(efetch_url)
         try:
             with open(genome_file_path, 'w') as f:
@@ -102,97 +106,129 @@ def clean_sequence(sequence, coerce_to='A'):
     sequence = str.strip(sequence)
     sequence = str.upper(sequence)
     sequence = re.sub('[^ATCG]', coerce_to, sequence)
-    print('# Cleaned sequence length:', len(sequence), file=sys.stderr)
+    if DEBUG:
+        print('# Cleaned sequence length:', len(sequence), file=sys.stderr)
     return sequence
 
 def pad_sequence(sequence, k=KMER_SIZE):
     """Return the padded sequence."""
     sequence = sequence + sequence[0:k-1]
-    print('# Padded sequence length for kmer generation:', len(sequence), file=sys.stderr)
+    if DEBUG:
+        print('# Padded sequence length for kmer generation:', len(sequence), file=sys.stderr)
     return sequence
 
 def kmerize(sequence, k=KMER_SIZE, coerce_to='A', circular=True, both_strands=True):
-    """Return the k-mer dictionary of a genome sequence."""
+    """Return the k-mer set of a genome sequence."""
     # pre-process the sequence
     sequence = clean_sequence(sequence)
-    if circular:
-        print('# Topology: circular', file=sys.stderr)
-    else:
-        print('# Topology: linear', file=sys.stderr)
-    if both_strands:
-        print('# BOTH strands would be processed.', file=sys.stderr)
-    else:
-        print('# Only the input strand would be processed.', file=sys.stderr)
-    # initialize the k-mer dictionary
-    kmers = dict()
+    if DEBUG:
+        if circular:
+            print('# Topology: circular', file=sys.stderr)
+        else:
+            print('# Topology: linear', file=sys.stderr)
+        if both_strands:
+            print('# BOTH strands would be processed.', file=sys.stderr)
+        else:
+            print('# Only the input strand would be processed.', file=sys.stderr)
+    # initialize the (unique) k-mer set
+    kmers = set()
     if circular:
         # pad the sequence
         orig_length = len(sequence)
         sequence = pad_sequence(sequence)
         for i in range(orig_length):
             kmer = sequence[i:i+k]
-            if kmer not in kmers:
-                kmers[kmer] = list()
-            kmers[kmer].append(i)
+            kmers.add(kmer)
         if both_strands:
             sequence = str(sequence).translate(str.maketrans('ATCG', 'TAGC'))[::-1]
-            print('# Reversed sequence length for kmer generation:', len(sequence), file=sys.stderr)
+            if DEBUG:
+                print('# Reversed sequence length for kmer generation:', len(sequence), file=sys.stderr)
             for j in range(orig_length):
                 kmer = sequence[j:j+k]
-                if kmer not in kmers:
-                    kmers[kmer] = list()
-                kmers[kmer].append(-j-1)
+                kmers.add(kmer)
     else:
-        print('# Unpadded sequence length for kmer generation:', len(sequence), file=sys.stderr)
+        if DEBUG:
+            print('# Unpadded sequence length for kmer generation:', len(sequence), file=sys.stderr)
         for i in range(len(sequence)-k+1):
             kmer = sequence[i:i+k]
-            if kmer not in kmers:
-                kmers[kmer] = list()
-            kmers[kmer].append(i)
+            kmers.add(kmer)
         if both_strands:
             sequence = str(sequence).translate(str.maketrans('ATCG', 'TAGC'))[::-1]
-            print('# Reversed sequence length for kmer generation:', len(sequence), file=sys.stderr)
+            if DEBUG:
+                print('# Reversed sequence length for kmer generation:', len(sequence), file=sys.stderr)
             for i in range(len(sequence)-k+1):
                 kmer = sequence[j:j+k]
-                if kmer not in kmers:
-                    kmers[kmer] = list()
-                kmers[kmer].append(-j-1)
-    print('# Number of unique kmers counted:', len(kmers), file=sys.stderr)
+                kmers.add(kmer)
+    if DEBUG:
+        print('# Number of unique kmers counted:', len(kmers), file=sys.stderr)
     return kmers
+
+def build_kmer_pool(accessions, k=KMER_SIZE):
+    """Return the set of unique k-mers"""
+    kmer_pool = set()
+    for accession in accessions:
+        title, sequence = load_genome(accession)
+        kmers = kmerize(sequence, k)
+        kmer_pool = kmer_pool.union(kmers)
+        print('\tPool occupancy:', len(kmer_pool), '/', 4**KMER_SIZE, 
+              '(' + str(round(100*len(kmer_pool)/4**KMER_SIZE, 2)) + '%)' )
+        del kmers
+        if DEBUG:
+            print('# k = ', k, file=sys.stderr)
+            print('# k-mer pool size:', len(kmer_pool), file=sys.stderr)
+    return kmer_pool
 
 # check and create the genome cache and run result directories
 check_create_dir(CACHE_DIR)
 check_create_dir(RESULT_DIR)
-
-# prepare the non-target genomes
-nt_pool = dict()
-nt_accessions = ['CP022546.1', 'LR130759.1']
-
-for accession in nt_accessions:
-    nt_title, nt_sequence = load_genome(accession)
-    nt_kmers = kmerize(nt_sequence)
-    nt_pool = dict(nt_pool, **nt_kmers)
-    print('# Non-target pool size:', len(nt_pool), file=sys.stderr)
-
+      
 # load the M. kansasii genome
+print('## Loading target genome...', file=sys.stderr)
 title, sequence = load_genome('NC_022663.1')
 cleaned_sequence = clean_sequence(sequence)
 padded_sequence = pad_sequence(cleaned_sequence)
 
-uniqueness_array = []
+# prepare the non-target genomes
+print('## Loading non-target genome...', file=sys.stderr)
+nt_accessions = get_accessions('mycobacterium_complete.csv', exclusion_string='kansasii')
+nt_pool = build_kmer_pool(nt_accessions)
+
+# determine the uniqueness of the genome using a sliding-window approach
+print('## Eliminating non-target k-mers...', file=sys.stderr)
+uniqueness_array = np.zeros(len(sequence))
 for i in range(len(sequence)):
     this_kmer = padded_sequence[i:i+KMER_SIZE]
     if this_kmer not in nt_pool:
-        uniqueness_array.append(1)
-    else:
-        uniqueness_array.append(0)
+        uniqueness_array[i] = 1
 
-# s_array = scipy.signal.savgol_filter(uniqueness_array, 501, 3)
-s_array = uniqueness_array
+# manually release the memory
+del nt_pool
 
-plt.plot(s_array)
-plt.hlines(0.5, 1411362, 1411475)
-plt.hlines(0.5, 1411546, 1414663)
-plt.hlines(0.5, 1414932, 1416471)
+# determine the conservedness of the genome (among the target species)
+print('## Selecting conserved k-mers...', file=sys.stderr)
+conservedness_array = np.zeros(len(sequence), dtype=np.int8)
+t_accessions = ['CP019887.1', 'CP019886.1', 'CP019884.1',
+                'CP019885.1', 'CP019883.1', 'CP019888.1']
+for t_accession in t_accessions:
+    t_pool = build_kmer_pool([t_accession,])
+    for i in range(len(sequence)):
+        this_kmer = padded_sequence[i:i+KMER_SIZE]
+        if this_kmer in t_pool:
+            conservedness_array[i] += 1
+    del t_pool
+
+u_array = scipy.signal.savgol_filter(uniqueness_array, 501, 3)
+print('# Uniqueness (min):', np.min(u_array), file=sys.stderr)
+print('# Uniqueness (50th centile):', np.percentile(u_array, 50), file=sys.stderr)
+print('# Uniqueness (max):', np.max(u_array), file=sys.stderr)
+c_array = scipy.signal.savgol_filter(conservedness_array/len(t_accessions), 501, 3)
+print('# Conservedness (min):', np.min(c_array), file=sys.stderr)
+print('# Conservedness (50th centile):', np.percentile(c_array, 50), file=sys.stderr)
+print('# Conservedness (max):', np.max(c_array), file=sys.stderr)
+uc_array = u_array * c_array
+uc_threshold = np.percentile(uc_array, PERCENTILE)
+print('# Cut-off score at ' + str(PERCENTILE) + '-centile:', uc_threshold, file=sys.stderr)
+plt.plot(u_array)
+plt.plot(c_array)
 plt.show()
 
