@@ -184,64 +184,65 @@ def addto_kmer_pool(kmer_pool, accessions, k=KMER_SIZE):
             print('# k = ', k, file=sys.stderr)
             print('# k-mer pool size:', len(kmer_pool), file=sys.stderr)
 
-# check and create the genome cache and run result directories
-check_create_dir(CACHE_DIR)
-check_create_dir(RESULT_DIR)
-      
-# load the M. kansasii genome
-print('## Loading target genome...', file=sys.stderr)
-title, sequence = load_genome('NC_022663.1')
-cleaned_sequence = clean_sequence(sequence)
-padded_sequence = pad_sequence(cleaned_sequence)
-
-# prepare the non-target genomes
-print('## Loading non-target genome...', file=sys.stderr)
-nt_accessions = get_accessions('mycobacterium_complete.csv', exclusion_string='kansasii')
-task_list = list()
-m = Manager()
-nt_pool = m.dict()
-for nt_accession in nt_accessions:
-    task_list.append((nt_pool, [nt_accession,]))
-p = Pool(THREADS)
-p.starmap(addto_kmer_pool, task_list)
-
-print('## Non-target k-mer pool generation finished.', file=sys.stderr)
-
-
-# determine the uniqueness of the genome using a sliding-window approach
-print('## Eliminating non-target k-mers...', file=sys.stderr)
-uniqueness_array = np.zeros(len(sequence))
-for i in range(len(sequence)):
-    this_kmer = padded_sequence[i:i+KMER_SIZE]
-    if this_kmer not in nt_pool:
-        uniqueness_array[i] = 1
-
-# manually release the memory
-del nt_pool
-
-# determine the conservedness of the genome (among the target species)
-print('## Selecting conserved k-mers...', file=sys.stderr)
-conservedness_array = np.zeros(len(sequence), dtype=np.int8)
-t_accessions = ['CP019887.1', 'CP019886.1', 'CP019884.1',
-                'CP019885.1', 'CP019883.1', 'CP019888.1']
-for t_accession in t_accessions:
-    t_pool = set()
-    t_pool = addto_kmer_pool(t_pool, [t_accession,])
+if __name__ == "__main__":
+    # check and create the genome cache and run result directories
+    check_create_dir(CACHE_DIR)
+    check_create_dir(RESULT_DIR)
+          
+    # load the M. kansasii genome
+    print('## Loading target genome...', file=sys.stderr)
+    title, sequence = load_genome('NC_022663.1')
+    cleaned_sequence = clean_sequence(sequence)
+    padded_sequence = pad_sequence(cleaned_sequence)
+    
+    # prepare the non-target genomes
+    print('## Loading non-target genome...', file=sys.stderr)
+    nt_accessions = get_accessions('mycobacterium_complete.csv', exclusion_string='kansasii')
+    task_list = list()
+    m = Manager()
+    nt_pool = m.dict()
+    for nt_accession in nt_accessions:
+        task_list.append((nt_pool, [nt_accession,]))
+    p = Pool(THREADS)
+    p.starmap(addto_kmer_pool, task_list)
+    
+    print('## Non-target k-mer pool generation finished.', file=sys.stderr)
+    
+    
+    # determine the uniqueness of the genome using a sliding-window approach
+    print('## Eliminating non-target k-mers...', file=sys.stderr)
+    uniqueness_array = np.zeros(len(sequence))
     for i in range(len(sequence)):
         this_kmer = padded_sequence[i:i+KMER_SIZE]
-        if this_kmer in t_pool:
-            conservedness_array[i] += 1
-    del t_pool
-
-u_array = scipy.signal.savgol_filter(uniqueness_array, 501, 3)
-print('# Uniqueness (min):', np.min(u_array), file=sys.stderr)
-print('# Uniqueness (50th centile):', np.percentile(u_array, 50), file=sys.stderr)
-print('# Uniqueness (max):', np.max(u_array), file=sys.stderr)
-c_array = scipy.signal.savgol_filter(conservedness_array/len(t_accessions), 501, 3)
-print('# Conservedness (min):', np.min(c_array), file=sys.stderr)
-print('# Conservedness (50th centile):', np.percentile(c_array, 50), file=sys.stderr)
-print('# Conservedness (max):', np.max(c_array), file=sys.stderr)
-plt.plot(u_array)
-plt.plot(c_array)
-plt.show()
-
+        if this_kmer not in nt_pool:
+            uniqueness_array[i] = 1
+    
+    # manually release the memory
+    del nt_pool
+    
+    # determine the conservedness of the genome (among the target species)
+    print('## Selecting conserved k-mers...', file=sys.stderr)
+    conservedness_array = np.zeros(len(sequence), dtype=np.int8)
+    t_accessions = ['CP019887.1', 'CP019886.1', 'CP019884.1',
+                    'CP019885.1', 'CP019883.1', 'CP019888.1']
+    for t_accession in t_accessions:
+        t_pool = set()
+        t_pool = addto_kmer_pool(t_pool, [t_accession,])
+        for i in range(len(sequence)):
+            this_kmer = padded_sequence[i:i+KMER_SIZE]
+            if this_kmer in t_pool:
+                conservedness_array[i] += 1
+        del t_pool
+    
+    u_array = scipy.signal.savgol_filter(uniqueness_array, 501, 3)
+    print('# Uniqueness (min):', np.min(u_array), file=sys.stderr)
+    print('# Uniqueness (50th centile):', np.percentile(u_array, 50), file=sys.stderr)
+    print('# Uniqueness (max):', np.max(u_array), file=sys.stderr)
+    c_array = scipy.signal.savgol_filter(conservedness_array/len(t_accessions), 501, 3)
+    print('# Conservedness (min):', np.min(c_array), file=sys.stderr)
+    print('# Conservedness (50th centile):', np.percentile(c_array, 50), file=sys.stderr)
+    print('# Conservedness (max):', np.max(c_array), file=sys.stderr)
+    plt.plot(u_array)
+    plt.plot(c_array)
+    plt.show()
+    
