@@ -225,9 +225,6 @@ c_array = scipy.signal.savgol_filter(conservedness_array/len(t_accessions), 501,
 print('# Conservedness (min):', np.min(c_array), file=sys.stderr)
 print('# Conservedness (50th centile):', np.percentile(c_array, 50), file=sys.stderr)
 print('# Conservedness (max):', np.max(c_array), file=sys.stderr)
-uc_array = u_array * c_array
-uc_threshold = np.percentile(uc_array, PERCENTILE)
-print('# Cut-off score at ' + str(PERCENTILE) + '-centile:', uc_threshold, file=sys.stderr)
 plt.plot(u_array)
 plt.plot(c_array)
 plt.show()
