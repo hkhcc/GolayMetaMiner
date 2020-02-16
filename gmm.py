@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from multiprocessing import Pool, Manager
+from threading import RLock
 from parse_ncbi_table import get_accessions
 
 DEBUG = False
@@ -172,10 +173,13 @@ def kmerize(sequence, k=KMER_SIZE, coerce_to='A', circular=True, both_strands=Tr
 
 def addto_kmer_pool(kmer_pool, accessions, k=KMER_SIZE):
     """Add k-mers from accessions to kmer-pool"""
+    lock = RLock()
     for accession in accessions:
         title, sequence = load_genome(accession)
-        kmers = kmerize(sequence, k)
+        kmers = kmerize(sequence, k)        
+        lock.acquire()
         kmer_pool.update(kmers)
+        lock.release()
         print('\tPool occupancy:', len(kmer_pool), '/', 4**KMER_SIZE, 
               '(' + str(round(100*len(kmer_pool)/4**KMER_SIZE, 2)) + '%)', file=sys.stderr)
         print('\t', sys.getsizeof(kmer_pool), file=sys.stderr)
