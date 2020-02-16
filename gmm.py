@@ -28,9 +28,8 @@ VERSION = '1.0 beta build 20200107'
 CACHE_DIR = 'gmm-cache'
 RESULT_DIR = 'gmm-runs'
 KMER_SIZE = 12
-PERCENTILE = 99.9
+PERCENTILE = 99.99
 THREADS = 6
-
 
 def check_create_dir(directory):
     """Create a storage directory if not already present."""
@@ -179,14 +178,30 @@ def addto_kmer_pool(kmer_pool, accessions, k=KMER_SIZE):
         kmers = kmerize(sequence, k)        
         lock.acquire()
         kmer_pool.update(kmers)
-        lock.release()
         print('\tPool occupancy:', len(kmer_pool), '/', 4**KMER_SIZE, 
               '(' + str(round(100*len(kmer_pool)/4**KMER_SIZE, 2)) + '%)', file=sys.stderr)
         print('\t', sys.getsizeof(kmer_pool), file=sys.stderr)
         del kmers
-        if DEBUG:
-            print('# k = ', k, file=sys.stderr)
-            print('# k-mer pool size:', len(kmer_pool), file=sys.stderr)
+        lock.release()
+        
+def detect_roi(u_array, c_array, u_cutoff):
+    """Report u_array regions that are above u_cutoff"""
+    roi = list()
+    in_region = False
+    base_pos = 1
+    for u_score, c_score in zip(u_array, c_array):
+        if in_region == False and u_score >= u_cutoff:
+            in_region = True # turn on recording
+            roi.append([base_pos, 0])
+        elif in_region == True and u_score >= u_cutoff:
+            pass
+        elif in_region == True and u_score < u_cutoff:
+            in_region = False # turn off recording
+            roi[-1][1] = base_pos
+        else:
+            pass
+        base_pos += 1
+    return roi
 
 if __name__ == "__main__":
     # check and create the genome cache and run result directories
@@ -211,8 +226,13 @@ if __name__ == "__main__":
     p.starmap(addto_kmer_pool, task_list)
     
     print('## Non-target k-mer pool generation finished.', file=sys.stderr)
-    
-    
+
+    # this step serves to bypass a Windows-specific bug
+    print('\t', type(nt_pool), len(nt_pool), sys.getsizeof(nt_pool), file=sys.stderr)
+    print('\tConverting shared dict() object to set()...', file=sys.stderr)
+    nt_pool = set(nt_pool.keys())
+    print('\t', type(nt_pool), len(nt_pool), sys.getsizeof(nt_pool), file=sys.stderr)
+
     # determine the uniqueness of the genome using a sliding-window approach
     print('## Eliminating non-target k-mers...', file=sys.stderr)
     uniqueness_array = np.zeros(len(sequence))
@@ -220,7 +240,7 @@ if __name__ == "__main__":
         this_kmer = padded_sequence[i:i+KMER_SIZE]
         if this_kmer not in nt_pool:
             uniqueness_array[i] = 1
-    
+
     # manually release the memory
     del nt_pool
     
@@ -230,8 +250,8 @@ if __name__ == "__main__":
     t_accessions = ['CP019887.1', 'CP019886.1', 'CP019884.1',
                     'CP019885.1', 'CP019883.1', 'CP019888.1']
     for t_accession in t_accessions:
-        t_pool = set()
-        t_pool = addto_kmer_pool(t_pool, [t_accession,])
+        t_pool = dict()
+        addto_kmer_pool(t_pool, [t_accession,])
         for i in range(len(sequence)):
             this_kmer = padded_sequence[i:i+KMER_SIZE]
             if this_kmer in t_pool:
@@ -239,14 +259,21 @@ if __name__ == "__main__":
         del t_pool
     
     u_array = scipy.signal.savgol_filter(uniqueness_array, 501, 3)
+    u_cutoff = np.percentile(u_array, PERCENTILE)
     print('# Uniqueness (min):', np.min(u_array), file=sys.stderr)
     print('# Uniqueness (50th centile):', np.percentile(u_array, 50), file=sys.stderr)
+    print('# Uniqueness cutoff score (i.e. ' + str(PERCENTILE) + 'th centile:', u_cutoff, file=sys.stderr)
     print('# Uniqueness (max):', np.max(u_array), file=sys.stderr)
     c_array = scipy.signal.savgol_filter(conservedness_array/len(t_accessions), 501, 3)
     print('# Conservedness (min):', np.min(c_array), file=sys.stderr)
     print('# Conservedness (50th centile):', np.percentile(c_array, 50), file=sys.stderr)
     print('# Conservedness (max):', np.max(c_array), file=sys.stderr)
     plt.plot(u_array)
+    plt.axhline(u_cutoff, c='red')
     plt.plot(c_array)
     plt.show()
     
+    # report the regions of interest
+    roi_list = detect_roi(u_array, c_array, u_cutoff)
+    for roi in roi_list:
+        print('start:', roi[0], 'end:', roi[1])
