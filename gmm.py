@@ -19,6 +19,7 @@ import urllib.request
 import matplotlib.pyplot as plt
 import numpy as np
 
+from multiprocessing import Pool, Manager
 from parse_ncbi_table import get_accessions
 
 DEBUG = False
@@ -27,6 +28,8 @@ CACHE_DIR = 'gmm-cache'
 RESULT_DIR = 'gmm-runs'
 KMER_SIZE = 12
 PERCENTILE = 99.9
+THREADS = 6
+
 
 def check_create_dir(directory):
     """Create a storage directory if not already present."""
@@ -131,52 +134,55 @@ def kmerize(sequence, k=KMER_SIZE, coerce_to='A', circular=True, both_strands=Tr
         else:
             print('# Only the input strand would be processed.', file=sys.stderr)
     # initialize the (unique) k-mer set
-    kmers = set()
+    kmers = dict()
     if circular:
         # pad the sequence
         orig_length = len(sequence)
         sequence = pad_sequence(sequence)
         for i in range(orig_length):
             kmer = sequence[i:i+k]
-            kmers.add(kmer)
+            if not kmer in kmers:
+                kmers[kmer] = 1
         if both_strands:
             sequence = str(sequence).translate(str.maketrans('ATCG', 'TAGC'))[::-1]
             if DEBUG:
                 print('# Reversed sequence length for kmer generation:', len(sequence), file=sys.stderr)
             for j in range(orig_length):
                 kmer = sequence[j:j+k]
-                kmers.add(kmer)
+                if not kmer in kmers:
+                    kmers[kmer] = 1
     else:
         if DEBUG:
             print('# Unpadded sequence length for kmer generation:', len(sequence), file=sys.stderr)
         for i in range(len(sequence)-k+1):
             kmer = sequence[i:i+k]
-            kmers.add(kmer)
+            if not kmer in kmers:
+                kmers[kmer] = 1
         if both_strands:
             sequence = str(sequence).translate(str.maketrans('ATCG', 'TAGC'))[::-1]
             if DEBUG:
                 print('# Reversed sequence length for kmer generation:', len(sequence), file=sys.stderr)
             for i in range(len(sequence)-k+1):
                 kmer = sequence[j:j+k]
-                kmers.add(kmer)
+                if not kmer in kmers:
+                    kmers[kmer] = 1
     if DEBUG:
         print('# Number of unique kmers counted:', len(kmers), file=sys.stderr)
     return kmers
 
-def build_kmer_pool(accessions, k=KMER_SIZE):
-    """Return the set of unique k-mers"""
-    kmer_pool = set()
+def addto_kmer_pool(kmer_pool, accessions, k=KMER_SIZE):
+    """Add k-mers from accessions to kmer-pool"""
     for accession in accessions:
         title, sequence = load_genome(accession)
         kmers = kmerize(sequence, k)
-        kmer_pool = kmer_pool.union(kmers)
+        kmer_pool.update(kmers)
         print('\tPool occupancy:', len(kmer_pool), '/', 4**KMER_SIZE, 
-              '(' + str(round(100*len(kmer_pool)/4**KMER_SIZE, 2)) + '%)' )
+              '(' + str(round(100*len(kmer_pool)/4**KMER_SIZE, 2)) + '%)', file=sys.stderr)
+        print('\t', sys.getsizeof(kmer_pool), file=sys.stderr)
         del kmers
         if DEBUG:
             print('# k = ', k, file=sys.stderr)
             print('# k-mer pool size:', len(kmer_pool), file=sys.stderr)
-    return kmer_pool
 
 # check and create the genome cache and run result directories
 check_create_dir(CACHE_DIR)
@@ -191,7 +197,16 @@ padded_sequence = pad_sequence(cleaned_sequence)
 # prepare the non-target genomes
 print('## Loading non-target genome...', file=sys.stderr)
 nt_accessions = get_accessions('mycobacterium_complete.csv', exclusion_string='kansasii')
-nt_pool = build_kmer_pool(nt_accessions)
+task_list = list()
+m = Manager()
+nt_pool = m.dict()
+for nt_accession in nt_accessions:
+    task_list.append((nt_pool, [nt_accession,]))
+p = Pool(THREADS)
+p.starmap(addto_kmer_pool, task_list)
+
+print('## Non-target k-mer pool generation finished.', file=sys.stderr)
+
 
 # determine the uniqueness of the genome using a sliding-window approach
 print('## Eliminating non-target k-mers...', file=sys.stderr)
@@ -210,7 +225,8 @@ conservedness_array = np.zeros(len(sequence), dtype=np.int8)
 t_accessions = ['CP019887.1', 'CP019886.1', 'CP019884.1',
                 'CP019885.1', 'CP019883.1', 'CP019888.1']
 for t_accession in t_accessions:
-    t_pool = build_kmer_pool([t_accession,])
+    t_pool = set()
+    t_pool = addto_kmer_pool(t_pool, [t_accession,])
     for i in range(len(sequence)):
         this_kmer = padded_sequence[i:i+KMER_SIZE]
         if this_kmer in t_pool:
