@@ -6,10 +6,12 @@ GolayMetaMiner: a software for k-mer based identification of clade-specific
 
 @author: Tom C.C. HO 
 """
+import argparse
 import hashlib
 import os
 import re
 import sys
+import textwrap
 import time
 
 import scipy.signal
@@ -19,17 +21,22 @@ import urllib.request
 import matplotlib.pyplot as plt
 import numpy as np
 
-from multiprocessing import Pool, Manager
+from multiprocessing import Pool, Manager, cpu_count
 from threading import RLock
-from parse_ncbi_table import get_accessions
+from parse_ncbi_table import get_accessions, parse_simple_acclist
+
+# initialize the timer after major imports
+from datetime import datetime
+t0 = datetime.now().timestamp()
 
 DEBUG = False
-VERSION = '1.0 beta build 20200107'
+VERSION = '1.0 codebase 20200301'
 CACHE_DIR = 'gmm-cache'
 RESULT_DIR = 'gmm-runs'
-KMER_SIZE = 12
 PERCENTILE = 99.99
-THREADS = 6
+KMER_SIZE = 12
+THREADS = cpu_count()
+MIN_LEN = 50
 
 def check_create_dir(directory):
     """Create a storage directory if not already present."""
@@ -170,7 +177,7 @@ def kmerize(sequence, k=KMER_SIZE, coerce_to='A', circular=True, both_strands=Tr
         print('# Number of unique kmers counted:', len(kmers), file=sys.stderr)
     return kmers
 
-def addto_kmer_pool(kmer_pool, accessions, k=KMER_SIZE):
+def addto_kmer_pool(kmer_pool, accessions, k):
     """Add k-mers from accessions to kmer-pool"""
     lock = RLock()
     for accession in accessions:
@@ -184,7 +191,7 @@ def addto_kmer_pool(kmer_pool, accessions, k=KMER_SIZE):
         del kmers
         lock.release()
         
-def detect_roi(u_array, c_array, u_cutoff):
+def detect_roi(u_array, c_array, u_cutoff, min_length=50):
     """Report u_array regions that are above u_cutoff"""
     roi = list()
     in_region = False
@@ -201,31 +208,90 @@ def detect_roi(u_array, c_array, u_cutoff):
         else:
             pass
         base_pos += 1
-    return roi
+    len_filtered_roi = list()
+    for region in roi:
+        if (region[1] - region[0] + 1) >= min_length:
+            len_filtered_roi.append(region)
+    return len_filtered_roi
+
+def print_time():
+    """Print the time since script start"""
+    print('[{time:10.4f}s]'.format(time=datetime.now().timestamp()-t0), file=sys.stderr)
 
 if __name__ == "__main__":
+    
     # check and create the genome cache and run result directories
+    print_time()
     check_create_dir(CACHE_DIR)
     check_create_dir(RESULT_DIR)
-          
-    # load the M. kansasii genome
+    
+    # parse the command line arguments
+    print_time()
+    parser = argparse.ArgumentParser(description='GolayMetaMiner: a software for k-mer based identification of clade-specific targets')
+    parser.add_argument('--primary_target', required=True, type=str, help='Accession number of the primary target genome.')
+    secondary_target_sources = parser.add_mutually_exclusive_group()
+    secondary_target_sources.add_argument('--secondary_targets', type=str, nargs='+', help='Accession number(s) of the secondary target genomes.')
+    secondary_target_sources.add_argument('--secondary_target_list', type=str, help='Path to a TXT list of secondary target accession numbers.')
+    parser.add_argument('--reporting_centile', type=float, default=PERCENTILE, help='Specific target centile score threshold (default: ' + str(PERCENTILE) + ').')
+    parser.add_argument('--kmer_size', type=int, default=KMER_SIZE, help='Genome analysis k-mer size (default: ' + str(KMER_SIZE)+ ').')
+    parser.add_argument('--num_threads', type=int, default=THREADS, help='Number of CPU threads to use (default: ' + str(THREADS) + ').')
+    parser.add_argument('--min_length', type=int, default=MIN_LEN, help='Minimum ROI length (default: ' + str(MIN_LEN) + ').')
+    non_target_sources = parser.add_mutually_exclusive_group()
+    non_target_sources.add_argument('--non_targets', type=str, nargs='+', help='Accession number(s) of the non-target genomes.')
+    non_target_sources.add_argument('--non_target_ncbi_table', type=str, help='Path to a CSV table of non-target genomes from https://www.ncbi.nlm.nih.gov/genome/browse#!/overview/')
+    parser.add_argument('--exclusion_string', type=str, help='Species-name exclusion for table-based input of non-target genomes.')
+    args = parser.parse_args()
+    
+    # Early checking of some essential arguments
+    if not args.secondary_targets and not args.secondary_target_list:
+        raise ValueError('Please specify either --secondary_targets or --secondary_target_list')
+    if not args.non_target_ncbi_table and not args.non_targets:
+        raise ValueError('Please specify either --non_targets or --non_target_ncbi_table')
+    
+    # Change analysis settings (if necessary)
+    if args.reporting_centile:
+        PERCENTILE = args.reporting_centile
+    if args.kmer_size:
+        KMER_SIZE = args.kmer_size
+    if args.num_threads:
+        THREADS = args.num_threads
+    if args.min_length:
+        MIN_LEN = args.min_length
+    
+    # Print the current settings
+    print('====================', file=sys.stderr)
+    print_time()
+    print('ANALYSIS SETTINGS:', file=sys.stderr)
+    print('Reporting centile cutoff: {}'.format(PERCENTILE), file=sys.stderr)
+    print('k-mer size: {}'.format(KMER_SIZE), file=sys.stderr)
+    print('Number of CPU threads to use: {}'.format(THREADS), file=sys.stderr)
+    print('Minimum target region length to report: {}'.format(MIN_LEN), file=sys.stderr)
+    print('====================', file=sys.stderr)
+
+    # load the primary target genome
     print('## Loading target genome...', file=sys.stderr)
-    title, sequence = load_genome('NC_022663.1')
+    print_time()
+    title, sequence = load_genome(args.primary_target)
     cleaned_sequence = clean_sequence(sequence)
     padded_sequence = pad_sequence(cleaned_sequence)
     
     # prepare the non-target genomes
-    print('## Loading non-target genome...', file=sys.stderr)
-    nt_accessions = get_accessions('mycobacterium_complete.csv', exclusion_string='kansasii')
+    print('## Loading non-target genomes...', file=sys.stderr)
+    print_time()
+    if args.non_target_ncbi_table:
+        nt_accessions = get_accessions(args.non_target_ncbi_table, exclusion_string=args.exclusion_string)
+    else:
+        nt_accessions = args.non_targets
     task_list = list()
     m = Manager()
     nt_pool = m.dict()
     for nt_accession in nt_accessions:
-        task_list.append((nt_pool, [nt_accession,]))
+        task_list.append((nt_pool, [nt_accession,], KMER_SIZE))
     p = Pool(THREADS)
     p.starmap(addto_kmer_pool, task_list)
     
     print('## Non-target k-mer pool generation finished.', file=sys.stderr)
+    print_time()
 
     # this step serves to bypass a Windows-specific bug
     print('\t', type(nt_pool), len(nt_pool), sys.getsizeof(nt_pool), file=sys.stderr)
@@ -235,6 +301,7 @@ if __name__ == "__main__":
 
     # determine the uniqueness of the genome using a sliding-window approach
     print('## Eliminating non-target k-mers...', file=sys.stderr)
+    print_time()
     uniqueness_array = np.zeros(len(sequence))
     for i in range(len(sequence)):
         this_kmer = padded_sequence[i:i+KMER_SIZE]
@@ -247,11 +314,14 @@ if __name__ == "__main__":
     # determine the conservedness of the genome (among the target species)
     print('## Selecting conserved k-mers...', file=sys.stderr)
     conservedness_array = np.zeros(len(sequence), dtype=np.int8)
-    t_accessions = ['CP019887.1', 'CP019886.1', 'CP019884.1',
-                    'CP019885.1', 'CP019883.1', 'CP019888.1']
+    if args.secondary_target_list:
+        t_accessions = parse_simple_acclist(args.secondary_target_list)
+    else:
+        t_accessions = args.secondary_targets
     for t_accession in t_accessions:
+        print_time()
         t_pool = dict()
-        addto_kmer_pool(t_pool, [t_accession,])
+        addto_kmer_pool(t_pool, [t_accession,], KMER_SIZE)
         for i in range(len(sequence)):
             this_kmer = padded_sequence[i:i+KMER_SIZE]
             if this_kmer in t_pool:
@@ -268,12 +338,26 @@ if __name__ == "__main__":
     print('# Conservedness (min):', np.min(c_array), file=sys.stderr)
     print('# Conservedness (50th centile):', np.percentile(c_array, 50), file=sys.stderr)
     print('# Conservedness (max):', np.max(c_array), file=sys.stderr)
+    print_time()
+    
+    # report the regions of interest
+    print('## Reporting ROIs...', file=sys.stderr)
+    print_time()
+    roi_list = detect_roi(u_array, c_array, u_cutoff, min_length=MIN_LEN)
+    for roi in roi_list:
+        print('# start:', roi[0], 'end:', roi[1], 'length:', roi[1] - roi[0] + 1, file=sys.stderr)
+        print('>{title} ({start}-{end}, len {length})'.format(title=title, start=roi[0], end=roi[1], length=roi[1]-roi[0]+1))
+        roi_sequence = sequence[roi[0]-1:roi[1]] # roi[0] and roi[1] are 1-based 
+        seq_lines = textwrap.wrap(roi_sequence, width=50)
+        for line in seq_lines:
+            print(line)
+    # plot the uniqueness and conservedness 
     plt.plot(u_array)
     plt.axhline(u_cutoff, c='red')
     plt.plot(c_array)
+    print('## Finished plotting. Rendering plot...', file=sys.stderr)
+    print_time()
     plt.show()
+
     
-    # report the regions of interest
-    roi_list = detect_roi(u_array, c_array, u_cutoff)
-    for roi in roi_list:
-        print('start:', roi[0], 'end:', roi[1])
+    
