@@ -54,7 +54,8 @@ def parse_simple_acclist(file_path):
     accessions = list()
     with open(file_path, 'r') as f:
         for line in f:
-            line = line.rstrip()
-            if not line == '':
-                accessions.append(line)
+            if not line.startswith('#'):
+                line = line.rstrip()
+                if not line == '':
+                    accessions.append(line)
     return accessions
