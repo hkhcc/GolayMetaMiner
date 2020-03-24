@@ -355,10 +355,17 @@ if __name__ == "__main__":
     plt.plot(u_array)
     plt.axhline(u_cutoff, c='red')
     plt.plot(c_array)
+    # label the targets
+    for i, roi in enumerate(roi_list):
+        x_pos = (roi[0] + roi[1]) / 2
+        y_pos = u_cutoff * 0.9
+        plt.text(x_pos, y_pos, str(i+1), fontsize=20, bbox=dict(facecolor='white', alpha=0.2))
+    # add the title and legend
     plt.title('{genome_title} genome plot'.format(genome_title=str.upper(title)), fontweight='bold')
     plt.legend(('Uniqueness score (U-score)', 'U-score cutoff at ' + str(PERCENTILE) + 'th percentile', 'Conservedness score (C-score)'))
     plt.xlabel('Genome position (bp)')
     plt.ylabel('Score')
+    plt.tight_layout()
     print('## Finished plotting. Rendering plot...', file=sys.stderr)
     print_time()
     plt.show()
