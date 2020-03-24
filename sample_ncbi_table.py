@@ -30,6 +30,6 @@ if __name__ == '__main__':
     output_array += random.sample(all_content_rows, sample_size)
     # output the result
     for row in output_array:
-        print(row, end='', file=sys.stderr)
+        print(row, end='')
     
 
