@@ -1,6 +1,5 @@
-# GolayMetaMiner
-This is the official repository of GolayMetaMiner: a software for k-mer based identification of clade-specific targets. 
-A manuscript on a specific diagnostic assay developed using this software is being submitted.
+# GolayMetaMiner: a software for k-mer based identification of clade-specific targets
+This is the official repository of GolayMetaMiner. A manuscript on a specific diagnostic assay developed using this software is being submitted.
 
 1.  Installation
   * The scripts are written in Python 3 and depend on a number of modules. The easiest way to install the required modules is by installing Anaconda. Anaconda may be downloaded from https://www.anaconda.com/distribution/
