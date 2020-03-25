@@ -35,7 +35,7 @@ Type "help", "copyright", "credits" or "license" for more information.
 Type "help", "copyright", "credits" or "license" for more information.
 >>> exit()
 ```
- * You may then try to run the script gmm.py. Running the script with no arguments provided displays a (hopefully informative) help message, prompting for input: 
+ * You may then try to run the script gmm.py. Running the script with no arguments provided displays a (hopefully informative) help message, prompting for missing arguments: 
 ```
 C:\Users\COMPUTER_USER\Documents\Python Scripts\GolayMetaMiner>python gmm.py
 [    0.0000s]
