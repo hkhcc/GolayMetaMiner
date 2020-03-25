@@ -15,7 +15,7 @@ git clone https://github.com/hkhcc/GolayMetaMiner
 ```
 python
 ```
-    and the Anaconda Python interpreter should be invoked:
+  and the Anaconda Python interpreter should be invoked:
 ```
 C:\Users\COMPUTER_USER\Documents\Python Scripts\GolayMetaMiner>python
 Python 3.7.4 (default, Aug  9 2019, 18:34:13) [MSC v.1915 64 bit (AMD64)] :: Anaconda, Inc. on win32
