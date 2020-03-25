@@ -16,7 +16,7 @@ git clone https://github.com/hkhcc/GolayMetaMiner
 ```
 python
 ```
- * Note that, in Linux, ```python``` should probably be replace by ```python3``` or similar.
+ * Note that, in Linux, ```python``` should probably be replaced by ```python3``` or similar.
  * The Anaconda Python interpreter should then be invoked:
 ```
 C:\Users\COMPUTER_USER\Documents\Python Scripts\GolayMetaMiner>python
