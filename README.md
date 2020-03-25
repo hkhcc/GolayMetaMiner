@@ -5,13 +5,14 @@ This is the official repository of GolayMetaMiner. A manuscript on a specific di
  * The scripts are written in Python 3 and depend on a number of modules. The easiest way to install the required modules is by installing Anaconda. Anaconda may be downloaded from https://www.anaconda.com/distribution/
  * During installation, the Windows user is suggested to select installation of “Just Me” (as recommended), “Add Anaconda to my PATH environment variable” (despite not recommended) and “Register Anaconda as my default Python 3.x”.
  * The scripts require a working Internet connection to function properly. 
- * To download the software, you can click the [download link](https://github.com/hkhcc/GolayMetaMiner/archive/master.zip) of this repository and extract to a new folder, or simply clone it 
+ * To download the software, you can click the [download link](https://github.com/hkhcc/GolayMetaMiner/archive/master.zip) of this repository and extract to a new folder, or simply clone it if you have Git installed:
 ```
 git clone https://github.com/hkhcc/GolayMetaMiner
 ```
   
 2. Checking the installation
- * Check that Python is properly installed. In the Windows command processor (cmd.exe), type
+ * If you are not familiar with Windows command processor usage, you may refer to [this wikiHow article](https://www.wikihow.com/Change-Directories-in-Command-Prompt). You need to be able to start the command prompt and navigate to the directory containing the extracted files to run the analysis. 
+ * To check that Python is properly installed, type the following command and press Enter:
 ```
 python
 ```
@@ -28,6 +29,11 @@ please see https://conda.io/activation
 
 Type "help", "copyright", "credits" or "license" for more information.
 >>>
+```
+ * After checking that Python is properly installed, you can type the following command and press Enter to exit.
+```
+Type "help", "copyright", "credits" or "license" for more information.
+>>> exit()
 ```
  * You may then try to run the script gmm.py. Running the script with no arguments provided displays a (hopefully informative) help message, prompting for input: 
 ```
