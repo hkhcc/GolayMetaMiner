@@ -7,10 +7,12 @@ parse_ncbi_table.py: a helper script for retrieving accession numbers from
 @author: Tom C.C. HO 
 """
 import csv
+import os
 import sys
 
 def get_accessions(file_path, exclusion_string=None, flatten=True):
     """Return a list (of list) of accessions """
+    assert os.path.isfile(file_path)
     print('\t# Loading accession list from', file_path + '...', file=sys.stderr)
     print('\t# Excluding species names containing "' + exclusion_string +'"', file=sys.stderr)
     accession_lists = list()
@@ -51,6 +53,7 @@ def parse_replicon_field(accession_string):
 
 def parse_simple_acclist(file_path):
     """Return a list of accessions"""
+    assert os.path.isfile(file_path)
     accessions = list()
     with open(file_path, 'r') as f:
         for line in f:
