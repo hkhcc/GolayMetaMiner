@@ -78,6 +78,8 @@ def load_fasta(fasta_path):
 
 def load_genome(accession, save=True, start=0, end=0, complementary_strand=False):
     """Load the genome (from cache) and return the parsed FASTA."""
+    if os.path.isfile(accession):
+        print('##', accession, 'is a local file. Please make sure you are using the correct options!', file=sys.stderr)
     if end < start:
         start, end = end, start
         if not complementary_strand:
